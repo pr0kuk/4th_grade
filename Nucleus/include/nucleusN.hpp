@@ -35,6 +35,7 @@ struct table
     struct cell** owner; ///< 2-dimensial array of structs cell (OWNSIZE x CALLOCSIZE)
     short ownersize; ///< current size of
     int cellsize; ///< size of storing data
+    const char* const type;
     int freesize; ///< number of free cells
     struct index freestack[STACKSIZE];
 };
@@ -71,8 +72,12 @@ struct index allocate(struct table* tb)
     \param[in] in Index of data looked for
     \return pointer to data
 */
-void* get(struct table* tb, struct index* in)
+void* get(struct table* tb, struct index* in, const char* const type)
 {
+    if (type != tb->type){
+        errorCode = ErrCode::WrongType;
+        return nullptr;
+    }
     if (in->code1 >=0 && in->code1 < tb->ownersize && in->code2 >=0 && in->code2 < CALLOCSIZE) { // if index correct
         if (tb->owner[in->code1][in->code2].gen == in->code3 && tb->owner[in->code1][in->code2].free == false) { // if generation is correct and memory is unfreed
             errorCode = ErrCode::Non;
@@ -186,7 +191,7 @@ struct cell** init_owner()
     \param[in] cellsize size of data stored
     \return initialized table
 */
-struct table init_table(int cellsize)
+struct table init_table(int cellsize, const char* const type)
 {
-    return {init_owner(), 0, cellsize, 0};
+    return {init_owner(), 0, cellsize, type, 0};
 }
