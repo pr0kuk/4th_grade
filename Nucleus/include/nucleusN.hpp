@@ -3,7 +3,7 @@
 #define MAXINT 1 << 31
 #define CALLOCSIZE 1024 ///< nmemb parameter in calloc()
 #define OWNSIZE 1024 ///< maximum number of callocs
-
+#define STACKSIZE 1024
 #ifdef DEBUG
 #define STEP 2 ///< distance between two cells in size of stored data
 #endif
@@ -16,16 +16,16 @@ extern ErrCode errorCode; ///< Global error variable
 /*! struct index stores 3 components of index of data */
 struct index
 {
-    int code1; ///< number of calloc block
+    short code1; ///< number of calloc block
     int code2; ///< number of cell in calloc block
-    int code3; ///< geneartion
+    short code3; ///< geneartion
 };
 
 /*! struct cell stores pointer */
 struct cell
 {
     void* pt; ///< pointer to data
-    int gen; ///< generation of index
+    short gen; ///< generation of index
     bool free; ///< status of pointer
 };
 
@@ -33,8 +33,10 @@ struct cell
 struct table
 {
     struct cell** owner; ///< 2-dimensial array of structs cell (OWNSIZE x CALLOCSIZE)
-    int ownersize; ///< current size of
+    short ownersize; ///< current size of
     int cellsize; ///< size of storing data
+    int freesize; ///< number of free cells
+    struct index freestack[STACKSIZE];
 };
 
 /*! 
@@ -45,24 +47,22 @@ struct table
 struct index allocate(struct table* tb)
 {
     /* searches for free cell*/
-    for (int i = 0; i < tb->ownersize; i++) {
-        for (int j = 0; j < CALLOCSIZE; j++) {
-            if (tb->owner[i][j].free == true) { // if free cell is found
-                tb->owner[i][j].free = false, tb->owner[i][j].gen+=1;
-                return {i, j, tb->owner[i][j].gen};
-            }
-        } 
+    if (tb->freesize > 0) { // free cell found
+        tb->owner[tb->freestack[tb->freesize-1].code1][tb->freestack[tb->freesize-1].code2].free = false;
+        return tb->freestack[--tb->freesize];
     }
     /* free cell wasn't found */
     /* all cells are busy -> makes new calloc */
     tb->ownersize += 1;
-    char * tt = (char*)(calloc(CALLOCSIZE, tb->cellsize));
-    for (int i = 0; i < CALLOCSIZE; i+=1)
+    char * tt = (char*)(calloc(CALLOCSIZE, tb->cellsize*STEP));
+    for (int i = 0; i < CALLOCSIZE; i+=1) {
         tb->owner[tb->ownersize-1][i] = {tt+i*tb->cellsize*STEP,0,true};
+        tb->freestack[(tb->freesize)++] = {static_cast<short>(tb->ownersize-1), i, ++tb->owner[tb->ownersize-1][i].gen};
+    }
     /* returns first cell of new calloc */
     tb->owner[tb->ownersize-1][0].free = false;
     errorCode = ErrCode::Non;
-    return {tb->ownersize-1, 0, ++tb->owner[tb->ownersize-1][0].gen};
+    return {static_cast<short>(tb->ownersize-1), 0, tb->owner[tb->ownersize-1][0].gen};
 }
 
 /*! 
@@ -91,15 +91,17 @@ void* get(struct table* tb, struct index* in)
 */
 ErrCode Free(struct table* tb, struct index* in)
 {
-    int code1 = in->code1, code2 = in->code2, code3 = in->code3;
+    short code1 = in->code1, code3 = in->code3;
+    int code2 = in->code2; 
     struct cell it = tb->owner[code1][code2];
-    if (code1 < 0 || code1 >= tb->ownersize || code2 < 0 || code2 >= CALLOCSIZE) // if index is incorrect
+    if (code1 >= tb->ownersize || code2 >= CALLOCSIZE) // if index is incorrect
         return errorCode = ErrCode::FreeZero;
     if (it.gen != code3) // if generation is incorrect
         return errorCode = ErrCode::WrongGen;
     if (it.free == true) // if cell was freed
         return errorCode = ErrCode::FreeZero;
     tb->owner[code1][code2].free = true; // frees the cell
+    tb->freestack[tb->freesize++] = {code1, code2, ++code3}; // adding cell to free stack
     return errorCode = ErrCode::Non;
 }
 
@@ -135,7 +137,7 @@ ErrCode check_bounds (struct table* tb)
 */
 struct index check_leaks(struct table* tb)
 {
-    for (int i = 0; i < tb->ownersize; i++) {
+    for (short i = 0; i < tb->ownersize; i++) {
         for (int j = 0; j < CALLOCSIZE; j++) {
             if (tb->owner[i][j].free == false) { // if any cell wasn't free -> it means leak
                 errorCode = ErrCode::Leaks;
@@ -171,6 +173,14 @@ struct cell** init_owner()
     return owner;
 }
 
+// struct index[STACKSIZE] init_freestack()
+// {
+//     struct cell** owner = (struct cell**)malloc(OWNSIZE * sizeof(struct cell));
+//     for (int i = 0; i < OWNSIZE; i++)
+//     owner[i] = (struct cell*)calloc(CALLOCSIZE, sizeof(struct cell));
+//     return owner;
+// }
+
 /*! 
     initializes table
     \param[in] cellsize size of data stored
@@ -178,5 +188,5 @@ struct cell** init_owner()
 */
 struct table init_table(int cellsize)
 {
-    return {init_owner(), 0, cellsize};
+    return {init_owner(), 0, cellsize, 0};
 }

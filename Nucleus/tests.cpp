@@ -4,7 +4,7 @@
 
 TEST (test , doubleDelete)
 {
-  struct table tb = init_table(sizeof(int));
+  struct table tb = init_table(sizeof(int), "int");
   struct index in = allocate(&tb);
   EXPECT_EQ(Free(&tb, &in), ErrCode::Non);
   EXPECT_EQ(Free(&tb, &in), ErrCode::FreeZero);
@@ -181,6 +181,24 @@ TEST (test, free)
   #endif
   check_leaks(&tb);
   EXPECT_EQ(Check(), ErrCode::Non);
+  destroy(&tb);
+}
+
+TEST (test, alloc_free_alloc)
+{
+  struct table tb = init_table(sizeof(int));
+  struct index in1 = allocate(&tb);
+  EXPECT_EQ(Free(&tb, &in1), ErrCode::Non);
+  struct index in2 = allocate(&tb);
+  EXPECT_EQ(in2.code1, in1.code1);
+  EXPECT_EQ(in2.code2, in1.code2);
+  EXPECT_EQ(in2.code3, in1.code3 + 1);
+
+  #ifdef DEBUG
+  EXPECT_EQ(check_bounds(&tb), ErrCode::Non);
+  #endif
+  check_leaks(&tb);
+  EXPECT_EQ(Check(), ErrCode::Leaks);
   destroy(&tb);
 }
 
